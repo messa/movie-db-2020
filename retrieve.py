@@ -46,14 +46,22 @@ table_movie_to_actor = Table('movie_to_actor', metadata,
 
 def main():
     p = ArgumentParser()
-    p.add_argument('--db', default='sqlite:///movies.sqlite')
+    p.add_argument('--db')
     args = p.parse_args()
     setup_logging()
     if not cache_dir.exists():
         cache_dir.mkdir()
-    engine = create_engine(args.db)
+    db_url = args.db
+    if not db_url:
+        dev_db_path = Path('movies.sqlite')
+        if dev_db_path.is_file():
+            logger.debug('unlink %s', dev_db_path)
+            dev_db_path.unlink()
+        db_url = 'sqlite:///{}'.format(dev_db_path)
+    engine = create_engine(db_url)
     metadata.create_all(engine)
-    get_top_movies(engine)
+    with engine.begin() as connection:
+        get_top_movies(connection)
 
 
 def get_top_movies(engine):
@@ -133,7 +141,6 @@ def get_actor(engine, actor_id, actor_url):
             logger.debug('birth_date: %r', birth_date)
             engine.execute('UPDATE actors SET birth_date = :bd WHERE id = :id', id=actor_id, bd=birth_date)
             break
-    assert 0
 
 
 def retrieve(url):
