@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
 from argparse import ArgumentParser
+from datetime import date
 from logging import getLogger
 from lxml import etree
 from pathlib import Path
 from pprint import pprint
+import re
 import requests
 from time import sleep
 from urllib.parse import urljoin
-from sqlalchemy import create_engine, Table, Column, Integer, Numeric, String, MetaData, ForeignKey, UniqueConstraint
+from sqlalchemy import create_engine, Table, Column, Integer, Numeric, String, Date, MetaData, ForeignKey, UniqueConstraint
 from sqlalchemy.exc import IntegrityError
 
 
@@ -32,7 +34,8 @@ table_movies = Table('movies', metadata,
 table_actors = Table('actors', metadata,
     Column('id', Integer, primary_key=True),
     Column('csfd_url', String, unique=True),
-    Column('name', String))
+    Column('name', String),
+    Column('birth_date', Date))
 
 table_movie_to_actor = Table('movie_to_actor', metadata,
     Column('id', Integer, primary_key=True),
@@ -115,14 +118,22 @@ def get_movie(engine, movie_id, movie_url):
         except IntegrityError:
             logger.debug('movie_to_actor aready inserted')
 
-        assert 0
-
         if new_actor:
             get_actor(engine, actor_id, actor_url)
 
 
 def get_actor(engine, actor_id, actor_url):
     html = retrieve(actor_url)
+    root = etree.HTML(html)
+    for li in root.xpath('//div[@class="info"]/ul/li'):
+        m = re.search(r'nar\. ([0123]?[0-9])\.([01]?[0-9])\.([0-9]{4})', li.text.strip())
+        if m:
+            day, month, year = m.groups()
+            birth_date = date(int(year), int(month), int(day))
+            logger.debug('birth_date: %r', birth_date)
+            engine.execute('UPDATE actors SET birth_date = :bd WHERE id = :id', id=actor_id, bd=birth_date)
+            break
+    assert 0
 
 
 def retrieve(url):
