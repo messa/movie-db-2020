@@ -8,7 +8,8 @@ from pprint import pprint
 import requests
 from time import sleep
 from urllib.parse import urljoin
-from sqlalchemy import create_engine, Table, Column, Integer, String, MetaData, ForeignKey, UniqueConstraint
+from sqlalchemy import create_engine, Table, Column, Integer, Numeric, String, MetaData, ForeignKey, UniqueConstraint
+from sqlalchemy.exc import IntegrityError
 
 
 logger = getLogger(__name__)
@@ -25,7 +26,8 @@ table_movies = Table('movies', metadata,
     Column('id', Integer, primary_key=True),
     Column('title', String),
     Column('csfd_url', String, unique=True),
-    Column('year', Integer))
+    Column('year', Integer),
+    Column('rating', Numeric))
 
 table_actors = Table('actors', metadata,
     Column('id', Integer, primary_key=True),
@@ -67,14 +69,16 @@ def get_top_movies(engine):
         logger.debug('movie_title: %r', movie_title)
         movie_url = urljoin(top_url, a.attrib['href'])
         logger.debug('movie_url: %r', movie_url)
+        td_avg, = tr.xpath('./td[@class="average"]')
+        hodnoceni_pct = float(td_avg.text.replace(',', '.').rstrip('%'))
 
         res = engine.execute('SELECT id FROM movies WHERE csfd_url = :url', url=movie_url)
         row = res.first()
         if row:
             movie_id = row['id']
         else:
-            sql = 'INSERT INTO movies (title, csfd_url, year) VALUES (:title, :csfd_url, :year)'
-            res = engine.execute(sql, title=movie_title, csfd_url=movie_url, year=year)
+            sql = 'INSERT INTO movies (title, csfd_url, year, rating) VALUES (:title, :csfd_url, :year, :rating)'
+            res = engine.execute(sql, title=movie_title, csfd_url=movie_url, year=year, rating=hodnoceni_pct)
             movie_id = res.lastrowid
 
         get_movie(engine, movie_id, movie_url)
@@ -98,7 +102,7 @@ def get_movie(engine, movie_id, movie_url):
             new_actor = False
         else:
             sql = 'INSERT INTO actors (name, csfd_url) VALUES (:name, :csfd_url)'
-            res = engine.execute(sql, name=actor_name, csfd_url=movie_url)
+            res = engine.execute(sql, name=actor_name, csfd_url=actor_url)
             actor_id = res.lastrowid
             new_actor = True
 
@@ -106,7 +110,10 @@ def get_movie(engine, movie_id, movie_url):
             INSERT INTO movie_to_actor (movie_id, actor_id)
             VALUES (:movie_id, :actor_id)
         '''
-        engine.execute(sql, movie_id=movie_id, actor_id=actor_id)
+        try:
+            engine.execute(sql, movie_id=movie_id, actor_id=actor_id)
+        except IntegrityError:
+            logger.debug('movie_to_actor aready inserted')
 
         assert 0
 
